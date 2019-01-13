@@ -142,6 +142,16 @@ public:
     }
 } point;
 
+ostream &operator<<(ostream &stream, const point &obj) {
+    stream << obj.x << " " << obj.y << " " << obj.z << " ";
+    return stream;
+}
+
+istream &operator>>(istream &stream, point &obj) {
+    stream >> obj.x >> obj.y >> obj.z;
+    return stream;
+}
+
 /*
 The matrices are forced to be 4x4. This is because in this assignment, we will deal with points in triangles.
 Maximum # of points that we will deal with at once is 3. And all the standard matrices are 4x4 (i.e. scale, translation, rotation etc.)
@@ -700,20 +710,10 @@ double interpolate_z_from_x(ppdd xz, double xp) {
     double za = xz.second.first;
     double zb = xz.second.second;
 
-    assert(xa != xb);
-    return zb - (zb - za) / (xb - xa) * (xb - xp);
-}
-
-ppdd get_x_and_z_from_y(point p, point q) {
-    auto is_greater = [](double d1, double d2) -> bool { return (d1 - d2) > EPSILON; }; //if d1 greater than d2
-
-    if (is_greater(p.x, q.x)) {
-        // q.x < p.x
-        return {{q.x, p.x},
-                {q.z, p.z}};
+    if (xa == xb) {
+        return min(za, zb);
     }
-    return {{p.x, q.x},
-            {p.z, q.z}};
+    return zb - (zb - za) / (xb - xa) * (xb - xp);
 }
 
 ppdd get_x_and_z_from_y(line a, line b, double ys) {
@@ -746,26 +746,28 @@ void z_buffer_algorithm(vector<vector<color>> &pixels, vector<vector<double>> &z
     auto get_index_from_x = [&dx](double x) -> int {
         return static_cast<int>(floor(((1.0 + x) / (2.0 * dx)) + EPSILON));
     };
-    auto get_x_from_index = [&dx](int index) -> double { return 1.0 - (2.0 * index + 1) * dx; };
+    auto get_x_from_index = [&dx](int index) -> double { return -1.0 + (2.0 * index + 1) * dx; };
 
-    auto is_same_value = [](double d1, double d2) -> bool { return abs(d1 - d2) < EPSILON; };
+    auto is_equal = [](double d1, double d2) -> bool { return abs(d1 - d2) < EPSILON; };
     auto is_greater = [](double d1, double d2) -> bool { return (d1 - d2) > EPSILON; }; //if d1 greater than d2
     auto is_less = [](double d1, double d2) -> bool { return (d2 - d1) > EPSILON; };
 
-//    shuffle(begin(triangles), end(triangles), default_random_engine(20));
     for (auto &triangle: triangles) {
         double high_y = triangle.p.y;
         double mid_y = triangle.q.y;
         double low_y = triangle.r.y;
-//        bool flag1 = true, flag2 = true;
+
+        assert(is_greater(high_y, mid_y) or is_equal(high_y, mid_y));
+        assert(is_greater(mid_y, low_y) or is_equal(mid_y, low_y));
 
         int low_y_index = get_index_from_y(high_y); // high y value means low index
         int high_y_index = get_index_from_y(low_y);
 
         int ly = max(0, low_y_index);
         int hy = min(high_y_index, screen_y - 1);
-        for (int y_index = ly; y_index <= hy; y_index++) {   // TODO: check boundary
-            double ys = get_y_from_index(y_index);
+
+        double ys = get_y_from_index(ly);
+        for (int y_index = ly; y_index <= hy; y_index++) {   
             if (ys > 1 or ys < -1) {
                 cout << "Should never be printed Y\n";
                 continue;
@@ -775,33 +777,16 @@ void z_buffer_algorithm(vector<vector<color>> &pixels, vector<vector<double>> &z
             auto xa = 2.0, xb = 2.0;  // xa < xb must
             pair<line, line> lines_to_intersect;
 
-            if (is_same_value(high_y, mid_y)) {
+            if (is_equal(high_y, mid_y)) {
                 lines_to_intersect = {triangle.b, triangle.c};
-            } else if (is_same_value(mid_y, low_y)) {
+            } else if (is_equal(mid_y, low_y)) {
                 lines_to_intersect = {triangle.a, triangle.c};
             } else if (is_greater(ys, mid_y)) {
                 lines_to_intersect = {triangle.a, triangle.c};
             } else {
                 lines_to_intersect = {triangle.b, triangle.c};
-            };
-            /*if (ys >= mid_y) {
-                // here we are considering triangles line (a and c)
-                if (is_same_value(high_y, mid_y) and flag1) {
-                    xz = get_x_and_z_from_y(triangle.p, triangle.q);
-                    flag1 = false;
-                } else {
-                    xz = get_x_and_z_from_y(triangle.a, triangle.c, ys);
-                }
-            } else {
-                // here we are considering triangles line (b and c)
-                if (is_same_value(mid_y, low_y) and flag2) {
-                    // q.x < r.x
-                    xz = get_x_and_z_from_y(triangle.q, triangle.r);
-                    flag2 = false;
-                } else {
-                    xz = get_x_and_z_from_y(triangle.b, triangle.c, ys);
-                }
-            }*/
+            }
+
             xz = get_x_and_z_from_y(lines_to_intersect.first, lines_to_intersect.second, ys);
             xa = xz.first.first;
             xb = xz.first.second;
@@ -809,7 +794,7 @@ void z_buffer_algorithm(vector<vector<color>> &pixels, vector<vector<double>> &z
             za = xz.second.first;
             zb = xz.second.second;
 
-            if (is_same_value(xa, xb)) {
+            if (is_equal(xa, xb)) {
                 cout << "One point to draw\n";
             }
 
@@ -819,8 +804,8 @@ void z_buffer_algorithm(vector<vector<color>> &pixels, vector<vector<double>> &z
             int lx = max(0, low_x_index);
             int hx = min(high_x_index, screen_x - 1);
 
-            for (int x_index = lx; x_index <= hx; x_index++) { // TODO: check boundary
-                double xp = get_x_from_index(x_index);
+            double xp = get_x_from_index(lx);
+            for (int x_index = lx; x_index <= hx; x_index++) { 
                 if (xp > 1 or xp < -1) {
                     cout << "Should never be printed X\n";
                     continue;
@@ -831,30 +816,26 @@ void z_buffer_algorithm(vector<vector<color>> &pixels, vector<vector<double>> &z
                     zs[y_index][x_index] = zp;
                     pixels[y_index][x_index] = triangle.colour;
                 }
+                xp += 2 * dx;
             }
+            ys -= 2 * dy;
         }
     }
 }
 
 void scan_convert() {
-    /*ifstream stage3;
-    stage3.open("stage3.txt");*/
-
     vector<vector<color>> pixels(screen_y, vector<color>(screen_x, background));
     vector<vector<double>> zs(screen_y, vector<double>(screen_x, +20));
 
-    // perform scan conversion, populate the 2D array pixels
-    // the array zs is the z-buffer.
     z_buffer_algorithm(pixels, zs);
 
-    // the following code generates a bmp image. do not change this.
     bitmap_image image(screen_x, screen_y);
     for (unsigned y = 0; y < screen_y; y++) {
         for (unsigned x = 0; x < screen_x; x++) {
             image.set_pixel(x, y, pixels[y][x].r, pixels[y][x].g, pixels[y][x].b);
         }
     }
-    image.save_image("image.bmp");
+    image.save_image("out.bmp");
 }
 
 void stage3() {
@@ -871,7 +852,6 @@ void stage3() {
     stage3 << std::fixed;
     stage3 << std::setprecision(7);
 
-    // process input from stage2 and write to stage3
     fov_x = fov_y * aspect_ratio;
     double t = near * tan(fov_y / 2 * PI / 180);
     double r = near * tan(fov_x / 2 * PI / 180);
@@ -883,17 +863,16 @@ void stage3() {
     P[2][3] = -(2 * far * near) / (far - near);
     P[3][2] = -1;
     P[3][3] = 0;
-    // P.print();
+
     vector<Triangle> temp_triangles;
     for (const auto &color : colors) {
         Triangle T;
-        stage2 >> T.p.x >> T.p.y >> T.p.z;
-        stage2 >> T.q.x >> T.q.y >> T.q.z;
-        stage2 >> T.r.x >> T.r.y >> T.r.z;
+        stage2 >> T.p;
+        stage2 >> T.q;
+        stage2 >> T.r;
         T.set_sides();
         T.set_color(color);
         temp_triangles.push_back(T);
-        // T.print();
     }
     for_each(temp_triangles.begin(), temp_triangles.end(), clip_along_z_near);
     temp_triangles.clear();
@@ -903,16 +882,16 @@ void stage3() {
 
     for (auto &triangle : triangles) {
         point _p = P * triangle.p;
-        stage3 << _p.x << " " << _p.y << " " << _p.z << " " /* << _p.w  */ << "\n";
+        stage3 << _p << "\n";
         triangle.p = _p;
 
         _p = P * triangle.q;
-        stage3 << _p.x << " " << _p.y << " " << _p.z << " " /* << _p.w  */ << "\n";
+        stage3 << _p << "\n";
         triangle.q = _p;
 
 
         _p = P * triangle.r;
-        stage3 << _p.x << " " << _p.y << " " << _p.z << " " /* << _p.w  */ << "\n";
+        stage3 << _p << "\n";
         triangle.r = _p;
 
         stage3 << endl;
@@ -936,7 +915,6 @@ void stage2() {
     stage2 << std::fixed;
     stage2 << std::setprecision(7);
 
-    // collect input from stage1 and process, write output to stage2
     Vector l(look_x - eye_x, look_y - eye_y, look_z - eye_z);
     l.normalize();
     Vector r = Vector::cross(l, Vector(up_x, up_y, up_z));
@@ -947,21 +925,18 @@ void stage2() {
     T[0][3] = -eye_x;
     T[1][3] = -eye_y;
     T[2][3] = -eye_z;
-    // T.print();
     matrix R = matrix::make_identity(4);
     R[0][0] = r.x, R[0][1] = r.y, R[0][2] = r.z;
     R[1][0] = u.x, R[1][1] = u.y, R[1][2] = u.z;
     R[2][0] = -l.x, R[2][1] = -l.y, R[2][2] = -l.z;
-    // R.print();
     matrix V = R * T;
-    // V.print();
 
     for (int i = 0; i < colors.size(); i++) {
         for (int j = 0; j < 3; j++) {
             point p;
-            stage1 >> p.x >> p.y >> p.z;
+            stage1 >> p;
             point _p = V * p;
-            stage2 << _p.x << " " << _p.y << " " << _p.z << " " /* << _p.w  */ << "\n";
+            stage2 << _p << "\n";
         }
         stage2 << endl;
     }
@@ -993,20 +968,17 @@ void stage1() {
 
     stack<matrix> Stack;
     Stack.push(matrix::make_identity(4));
-    // take other commands as input from scene in a loop
-    // process accordingly
-    // write to stage1
+
     while (true) {
         scene >> command;
         if (command == "end")
             break;
         else if (command == "triangle") {
-            // Stack.top().print();
             for (int i = 0; i < 3; i++) {
                 point p;
-                scene >> p.x >> p.y >> p.z;
+                scene >> p;
                 point _p = Stack.top() * p;
-                stage1 << _p.x << " " << _p.y << " " << _p.z << " " /* << _p.w  */ << "\n";
+                stage1 << _p << "\n";
             }
             stage1 << endl;
 
@@ -1020,7 +992,6 @@ void stage1() {
             translation_matrix[0][3] = tx;
             translation_matrix[1][3] = ty;
             translation_matrix[2][3] = tz;
-            // translation_matrix.print();
             matrix new_transformation_mat = translation_matrix * Stack.top();
             Stack.pop();
             Stack.push(new_transformation_mat);
@@ -1031,7 +1002,6 @@ void stage1() {
             scaling_matrix[0][0] = sx;
             scaling_matrix[1][1] = sy;
             scaling_matrix[2][2] = sz;
-            // scaling_matrix.print();
             matrix new_transformation_mat = scaling_matrix * Stack.top();
             Stack.pop();
             Stack.push(new_transformation_mat);
@@ -1053,8 +1023,6 @@ void stage1() {
             rotation_matrix[0][1] = C2.x, rotation_matrix[1][1] = C2.y, rotation_matrix[2][1] = C2.z, rotation_matrix[3][1] = 0;
             rotation_matrix[0][2] = C3.x, rotation_matrix[1][2] = C3.y, rotation_matrix[2][2] = C3.z, rotation_matrix[3][2] = 0;
             rotation_matrix[0][3] = 0, rotation_matrix[1][3] = 0, rotation_matrix[2][3] = 0, rotation_matrix[3][3] = 1;
-            // cout << "Rotation Matrix: \n";
-            // rotation_matrix.print();
             matrix new_transformation_mat = rotation_matrix * Stack.top();
             Stack.pop();
             Stack.push(new_transformation_mat);
@@ -1072,8 +1040,6 @@ void stage1() {
         }
     }
 
-    // cout << colors.size() << endl;
-
     scene.close();
     stage1.close();
 }
@@ -1087,67 +1053,5 @@ int main() {
     stage3();
     scan_convert();
 
-    /*point p(1, 2, 4), q(5, 20, 40), r(-1, -22, 4);
-    line l(p, q), m(q, r);
-    double ys = 2.0;
-    while (true) {
-        cin >> ys;
-        cout << interpolate_z_from_y(l, ys) << endl;
-        cout << interpolate_x_from_y(l, ys) << endl;
-        cout << interpolate_z_from_y(m, ys) << endl;
-        cout << interpolate_x_from_y(m, ys) << endl;
-    }*/
-
-    /*screen_x = 500;
-    screen_y = 500;
-
-    double del_y = 1.0 / screen_y;
-    double del_x = 1.0 / screen_x;
-
-    auto get_index_from_y = [&del_y](double y) -> int {
-        return static_cast<int>(floor(((1.0 - y) / (2.0 * del_y)) + EPSILON));
-    };
-    auto get_y_from_index = [&del_y](int index) -> double { return 1.0 - (2.0 * index + 1) * del_y; };
-
-    auto get_index_from_x = [&del_x](double x) -> int {
-        return static_cast<int>(floor(((1.0 + x) / (2.0 * del_x)) + EPSILON));
-    };
-    auto get_x_from_index = [&del_x](int index) -> double { return 1.0 - (2.0 * index + 1) * del_x; };
-
-    auto is_same_value = [](double d1, double d2) -> bool { return abs(d1 - d2) < EPSILON; };
-    auto is_greater = [](double d1, double d2) -> bool { return (d1 - d2) > EPSILON; }; //if d1 greater than d2
-    auto is_less = [](double d1, double d2) -> bool { return (d2 - d1) > EPSILON; };    // if d1 less than d2
-
-    double y = -2.0;
-    double x = 2.0;
-    int count = 0;
-    for (int i = 0; i < 8000; ++i) {
-        int i1 = get_index_from_y(y), i2 = get_index_from_x(x);
-        cout << i1 << " " << i2 << endl;
-//        if (i1 + i2 != 499)
-//            count++;
-        y += 2.0 / 2000;
-        x -= 2.0 / 2000;
-    }
-    cout << count << endl; */
-
-    /*auto x = 1.0, y = 2.0;
-
-    for (int i = 0; i < 10; ++i) {
-        cout << x << " " << y << endl;
-        if (is_greater(y, x))
-            cout << "greater" << endl;
-        else
-            cout << "Not" << endl;
-        x /= 10;
-        y /= 10;
-    }*/
-
-    /* point p(0, 0, 67), q(6, 6, 67);
-    point near_p(0, 0, 67), far_p(0, 0, 6);
-    plane pl(near_p, Vector(0, 0, 1));
-    auto x = get_intersecting_point(line(p, q), pl);
-    cout << x.first << "\n"; 
-    x.second.print(); */
     return 0;
 }
